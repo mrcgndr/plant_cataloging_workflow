@@ -1,0 +1,72 @@
+fluidml:
+  save_dir: "results/fluidml_store"
+  logging_level: "INFO"
+  n_workers: 8
+  force:
+  visualize_graph: False
+
+images:
+  source_dir: "data"
+  img_format: ".tif"
+  channels: ["B", "G", "R", "SWIR", "NIR", "THERMAL"]
+  field_ids: ["demo"]
+
+segmentation:
+  veg_index: "GLI"
+  use_watershed: False
+  use_growfunction_coverratio: False
+
+plant_detection:
+  gauss_sigma_bounds: [2, 10] # cm
+  peak_threshold: 0.1
+  min_peak_distance: 8 # cm
+  max_detection_coverratio: 0.75
+
+alignment:
+  max_centroid_distance: 9 # cm
+
+weed_filter:
+  threshold_factor: 0.15
+
+plant_grouping:
+  max_centroid_distance: 12 # cm
+
+quality_evaluation:
+  ground_truth_data_dir: "data/ground_truth" # leave empty if no ground truth data is available
+  max_detection_distance: 8 # cm
+
+dataframes:
+  save_dir: "results/plants"
+
+dataset_generation:
+  shape: [128, 128] # px
+  save_dir: "results/images_dataset"
+  channels: ["R", "G", "B", "SWIR", "NIR"]
+  annotations:
+    df_path: ""
+    gps_column: ""
+    values_column: ""
+    tol_distance: 0 # cm
+
+orthoimages:
+  make_orthoimages: True
+  save_dir: "results/raster"
+
+plot:
+  plant_detection:
+    make_plots: True
+    img_format: ".png"
+    dpi: 200
+    cmap: "YlGn"
+    save_dir: "results/plant_detection"
+  plant_grouping:
+    make_plots: True
+    img_format: ".png"
+    dpi: 150
+    cmap: "jet"
+    save_dir: "results/plant_grouping"
+  quality_evaluation:
+    make_plots: True
+    img_format: ".png"
+    dpi: 200
+    save_dir: "results/quality_evaluation"

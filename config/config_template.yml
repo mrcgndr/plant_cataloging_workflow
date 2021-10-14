@@ -1,0 +1,72 @@
+fluidml:
+  save_dir: # directory path for fluidML FileStore
+  logging_level: # "INFO", "DEBUG", "WARN", ...
+  n_workers: # number of parallel workers ("dolphins")
+  force: # instead of None, write nothing; alternatively name the task (or list of tasks) to be re-executed. With "<task name>+", also all successor tasks are re-executed.
+  visualize_graph: # if True, the task graph is visualized with Bokeh as a Pop-up
+
+images:
+  source_dir: # directory of source images (have to be named as <field ID>_yyyymmdd_*.*)
+  img_format: # image format with beginning "." (currently works with .tif)
+  channels: # ordered channel names in images ("R"ed, "G"reen, "B"lue, "SWIR", "NIR", "THERMAL", "alpha"). If image has an alpha channel, it will be used as mask.
+  field_ids: # list of field IDs in the source directory
+
+segmentation:
+  veg_index: # Vegetation index used for segmentation. Currently implemented: RGB-only: "NGRDI", "GLI", multispectral: "OSAVI"
+  use_watershed: # True if the watershed method should be used. For large images, this could lead to long calculation times and memory usage
+  use_growfunction_coverratio: # True if the growfunction fit should be used for cover ratio calculation; False otherwise
+
+plant_detection:
+  gauss_sigma_bounds: # lower and upper gauss sigma bound in cm in a list, e.g. [8, 20]
+  peak_threshold: # min. peak height to detect as a peak. Gauss blurring results in images with values in [0, 1] so take a value between those, e.g. 0.1. 
+  min_peak_distance: # shortest possible distance between peaks found by the peakfinder in cm
+  max_detection_coverratio: # highest cover ratio for peak detection; images with higher cover ratio are excluded from plant detection
+
+alignment:
+  max_centroid_distance: # maximum distance of points from any exisiting cluster centroid calculated by previous layers in cm
+
+weed_filter:
+  threshold_factor: # threshold factor for weed filtering
+
+plant_grouping:
+  max_centroid_distance: # maximum distance in cm between group centroid and new point to be considered as a member of the corresponding group
+
+dataframes:
+  save_dir: # save directory for plant and metadata DataFrames
+
+dataset_generation:
+  shape: # shape of output images as list [<height in px>, <width in px>]. If None, no dataset will be generated
+  save_dir: # root directory of dataset
+  channels: # channel names to export ("R"ed, "G"reen, "B"lue, "SWIR", "NIR", "THERMAL", "alpha")
+  annotations: # if DataFrame object available with appropriate columns, only annotated images will we extracted
+    df_path: # path to DataFrame object. Leave empty, if not annotations are available. DataFrame must have a "date", "field_id", GPS coordinates, and annotation value column.
+    gps_column: # column name where GPS coordinates in [longitude, latitude] are given
+    values_column: # column name with annotation values
+    tol_distance: # max. tolerance distance between annotation and plant position [cm]
+
+quality_evaluation:
+  ground_truth_data_dir: # data directory of ground truth position (.kml files). Leave empty if no ground truth data is available.
+  max_detection_distance: # maximum distance in cm between ground truth points and detections 
+    
+orthoimages:
+  make_orthoimages: # If True, segmentation maps and Gauss blurred images are saved as orthoimages. Additionally, detected peaks are saved as .kml file.
+  save_dir: # save directory for orthoimages
+
+plot: # warning: if input data is large (> 1 GB per image), these plots require high RAM availability. For debugging, better chose orthoimages export and open e.g. in QGIS.
+  plant_detection:
+    make_plots: # make plots for plant detection tasks
+    img_format: # plot format with beginning "." (".pdf" or ".png")
+    dpi: # dpi for plant detection plots
+    cmap: # matplotlib colormap for plant detection plots
+    save_dir: # save directory for plant detection plots
+  plant_grouping:
+    make_plots: # make plots for plant grouping tasks
+    img_format: # plot format with beginning "." (".pdf" or ".png")
+    dpi: # dpi for plant grouping plots
+    cmap: # matplotlib colormap for plant grouping plots
+    save_dir: # save directory for plant grouping plots
+  quality_evaluation:
+    make_plots: # make plots for quality evaluation task
+    img_format: # plot format with beginning "." (".pdf" or ".png")
+    dpi: # dpi for quality evaluation plots
+    save_dir: # save directory for quality evaluation plots
