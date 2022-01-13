@@ -2,6 +2,20 @@
 
 Source code for the plant extraction workflow introduced in the paper "Agricultural Plant Cataloging and Establishment of a Data Framework from UAV-based Crop Images by Computer Vision"
 
+Pre-print version avaliable on [arXiv](https://arxiv.org/abs/2201.02885v2).
+
+Please cite as:
+```bibtex
+@misc{guender_plantextractionworkflow,
+      title={Agricultural Plant Cataloging and Establishment of a Data Framework from UAV-based Crop Images by Computer Vision}, 
+      author={Maurice Gu\"nder and Facundo R. Ispizua Yamati and Jana Kierdorf and Ribana Roscher and Anne-Katrin Mahlein and Christian Bauckhage},
+      year={2022},
+      eprint={2201.02885},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV}
+}
+```
+
 ## Installation
 
 ### 1. Create new Python environment and activate it
