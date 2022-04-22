@@ -8,7 +8,7 @@ fluidml:
 images:
   source_dir: "data"
   img_format: ".tif"
-  channels: ["B", "G", "R", "SWIR", "NIR", "THERMAL"]
+  channels: ["B", "G", "R", "REDEDGE", "NIR", "THERMAL"]
   field_ids: ["demo"]
 
 segmentation:
@@ -40,8 +40,11 @@ dataframes:
 
 dataset_generation:
   shape: [128, 128] # px
+  resolution: 0.2 # cm/px
+  nan_value: "nan"
   save_dir: "results/images_dataset"
-  channels: ["R", "G", "B", "SWIR", "NIR"]
+  channels: ["R", "G", "B", "REDEGDE", "NIR"]
+  planting_date: "2020-04-06"
   annotations:
     df_path: ""
     gps_column: ""

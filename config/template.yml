@@ -36,8 +36,11 @@ dataframes:
 
 dataset_generation:
   shape: # shape of output images as list [<height in px>, <width in px>]. If None, no dataset will be generated
+  resolution: # target image resolution in cm/px
+  nan_value: # fill value for missing data. Put number (int, float) or "nan".
   save_dir: # root directory of dataset
   channels: # channel names to export ("R"ed, "G"reen, "B"lue, "SWIR", "NIR", "THERMAL", "alpha")
+  planting_date: # planting date of plants. string format: "YYYY-MM-DD"
   annotations: # if DataFrame object available with appropriate columns, only annotated images will we extracted
     df_path: # path to DataFrame object. Leave empty, if not annotations are available. DataFrame must have a "date", "field_id", GPS coordinates, and annotation value column.
     gps_column: # column name where GPS coordinates in [longitude, latitude] are given

@@ -1,25 +1,28 @@
-import os, glob
-
-from fluidml import Flow, Swarm
-from fluidml.common import Task, Resource
-from fluidml.flow import GridTaskSpec, TaskSpec
-from fluidml.storage import LocalFileStore
-from fluidml.common.logging import configure_logging
-from fluidml.visualization import visualize_graph_interactive
-
-from plant_extraction.tasks import *
-from plant_extraction.config import PipelineConfig
+import glob
+import os
 
 import yaml
-from dacite import from_dict
+from cataloging.tasks import *
+from fluidml import Flow, Swarm
+from fluidml.common.logging import configure_logging
+from fluidml.flow import GridTaskSpec, TaskSpec
+from fluidml.storage import LocalFileStore
+from fluidml.visualization import visualize_graph_interactive
+from metadict import MetaDict
+
 
 class Pipeline():
 
-    def __init__(self, config_file_path: str):
+    def __init__(
+            self,
+            config_file_path: str
+        ):
         with open(config_file_path, "r") as file:
-            self.config = from_dict(data_class = PipelineConfig, data = yaml.safe_load(file))
+            self.config = MetaDict(yaml.load(file, yaml.Loader))
     
-    def build(self):
+    def build(
+            self
+        ) -> None:
 
         self.tasks = []
 
@@ -321,6 +324,8 @@ class Pipeline():
                     "source_channels": self.config.images.channels,
                     "export_channels": self.config.dataset_generation.channels,
                     "export_shape": self.config.dataset_generation.shape,
+                    "export_resolution": self.config.dataset_generation.resolution,
+                    "nan_value": self.config.dataset_generation.nan_value,
                     "ann_df_path": self.config.dataset_generation.annotations.df_path,
                     "ann_gps_name": self.config.dataset_generation.annotations.gps_column,
                     "ann_values_name": self.config.dataset_generation.annotations.values_column,
@@ -332,13 +337,14 @@ class Pipeline():
                     name=field_id+"_MakeImageDataset",
                     config=make_image_dataset_kwargs,
                     publishes=[
-                        "field_id"
+                        "field_id",
+                        "lengths"
                         ]
                     )
                 make_image_dataset_task.requires([load_peaks_task, save_plants_dataframe_task])
                 self.tasks.append(make_image_dataset_task)
 
-        last_tasks = self.tasks[len(self.tasks)//len(self.config.images.field_ids)-1::len(self.tasks)//len(self.config.images.field_ids)]
+        previous_tasks = self.tasks[len(self.tasks)//len(self.config.images.field_ids)-1::len(self.tasks)//len(self.config.images.field_ids)]
 
         merge_plants_dataframe_kwargs = {
             "save_dir": self.config.dataframes.save_dir
@@ -353,27 +359,33 @@ class Pipeline():
             reduce=True
             )
 
-        merge_plants_dataframe_task.requires(last_tasks)
+        merge_plants_dataframe_task.requires(previous_tasks)
         self.tasks.append(merge_plants_dataframe_task)
 
         if self.config.dataset_generation.shape:
-            merge_bounding_box_files_kwargs = {
-                "img_root_dir": self.config.dataset_generation.save_dir,
+            merge_image_files_kwargs = {
+                "save_dir": self.config.dataset_generation.save_dir,
+                "channels": self.config.dataset_generation.channels,
+                "img_shape": self.config.dataset_generation.shape,
+                "ann_values_name": self.config.dataset_generation.annotations.values_column,
+                "planting_date": self.config.dataset_generation.planting_date
                 }
-            merge_bounding_box_files_task = TaskSpec(
-                task=MergeBoundingBoxFiles,
-                name="MergeBoundingBoxFiles",
-                config=merge_bounding_box_files_kwargs,
+            merge_image_files_task = TaskSpec(
+                task=MergeImageFiles,
+                name="MergeImageFiles",
+                config=merge_image_files_kwargs,
                 publishes=[
                     "_dummy"
                     ],
                 reduce=True
                 )
-            merge_bounding_box_files_task.requires(last_tasks)
-            self.tasks.append(merge_bounding_box_files_task)
+            merge_image_files_task.requires(previous_tasks)
+            self.tasks.append(merge_image_files_task)
 
 
-    def run(self):
+    def run(
+            self
+        ):
         
         results_store = LocalFileStore(base_dir=os.path.join(os.path.abspath(''), self.config.fluidml.save_dir))
     
@@ -392,3 +404,5 @@ class Pipeline():
                     graph=flow.task_spec_graph)
 
             results = flow.run(force=self.config.fluidml.force)
+
+        return results

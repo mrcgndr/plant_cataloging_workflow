@@ -1,60 +1,58 @@
-from fluidml.common import Task
-
-import os
-import gc
-from typing import List, Dict, Union, Tuple, Optional
-from glob import glob
-
-import numpy as np
-
-from PIL import Image
-import rasterio as rio
-from rasterio.transform import xy, rowcol
-from rasterio.windows import Window
-import pyproj
-
 import datetime as dt
+import gc
+import json
+import logging
+import os
+import pickle
+from glob import glob
+from typing import Dict, List, Optional, Tuple, Union
 
+import h5py
 import matplotlib as mpl
+import matplotlib.dates as mdates
 import matplotlib.gridspec as gs
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-
-from skimage.filters import threshold_otsu, gaussian
-from skimage.segmentation import watershed
+import numpy as np
+import pandas as pd
+import pyproj
+import rasterio as rio
+import simplekml
+from cataloging.vi import gliImage, ngrdiImage, osaviImage
+from fluidml.common import Task
+#from PIL import Image
+from pycpd import RigidRegistration
+from pykml import parser
+from rasterio.enums import Resampling
+from rasterio.transform import rowcol, xy
+from rasterio.windows import Window
+from scipy.ndimage import distance_transform_edt
+from scipy.optimize import curve_fit
+from scipy.signal import find_peaks
 #from skimage.exposure import equalize_adapthist
 from skimage.feature import peak_local_max
-from skimage.transform import hough_line, hough_line_peaks, rotate
+from skimage.filters import gaussian, threshold_otsu
 from skimage.measure import label, regionprops
-
-from scipy.optimize import curve_fit, minimize_scalar
-from scipy.signal import find_peaks
-from scipy.ndimage import distance_transform_edt
-
-from pycpd import RigidRegistration
-
-import pandas as pd
-
+from skimage.segmentation import watershed
+from skimage.transform import hough_line, hough_line_peaks, resize
 from sklearn.neighbors import NearestNeighbors
 
-import simplekml
-from pykml import parser
-import json
-
-from plant_extraction.vi import osaviImage, ngrdiImage, gliImage
-
-import logging
 logger = logging.getLogger(__name__)
 
 # suppress pickle 'error' from rasterio
 logging.Logger.manager.loggerDict['rasterio'].setLevel(logging.CRITICAL)
+logging.Logger.manager.loggerDict['matplotlib'].setLevel(logging.CRITICAL)
 
 import warnings
+
 warnings.filterwarnings("ignore")
 
 mpl.use('Agg')
 
-def read_raster(image_path: str, all_channels: np.array, channels: List[str]):
+def read_raster(
+        image_path: str,
+        all_channels: np.array,
+        channels: List[str]
+    ):
     ch = [np.argmax(all_channels == c)+1 for c in channels]
     raster = rio.open(image_path)
     if raster.dtypes[0] == "float32":
@@ -72,7 +70,11 @@ def read_raster(image_path: str, all_channels: np.array, channels: List[str]):
         raise NotImplementedError()
     return np.transpose(data, axes=(1,2,0))
 
-def write_onechannel_raster(image_path: str, image: np.array, meta: Dict, dtype: str):
+def write_onechannel_raster(
+        image_path: str,
+        image: np.array,
+        meta: Dict, dtype: str
+    ):
     if dtype == 'float32':
         meta.update({
                     'dtype': 'float32',
@@ -88,7 +90,9 @@ def write_onechannel_raster(image_path: str, image: np.array, meta: Dict, dtype:
     with rio.open(image_path, "w", **meta) as dest:
         dest.write(image,1)
 
-def calc_m_per_px(raster_meta: Dict) -> float:
+def calc_m_per_px(
+        raster_meta: Dict
+    ) -> float:
     # read CRS of rasterio data
     proj_crs = pyproj.crs.CRS.from_user_input(raster_meta["crs"])
     # GPS coordinates of anchor point
@@ -108,7 +112,10 @@ def calc_m_per_px(raster_meta: Dict) -> float:
     m_per_px = np.mean([pxx, pxy])
     return m_per_px
 
-def px_to_utm(point_cloud: np.ndarray, raster_meta: Dict) -> Tuple[np.ndarray, pyproj.proj.Proj]:
+def px_to_utm(
+        point_cloud: np.ndarray,
+        raster_meta: Dict
+    ) -> Tuple[np.ndarray, pyproj.proj.Proj]:
     # read CRS of rasterio data
     proj_crs = pyproj.crs.CRS.from_user_input(raster_meta["crs"])
     # GPS coordinates of point cloud
@@ -121,7 +128,9 @@ def px_to_utm(point_cloud: np.ndarray, raster_meta: Dict) -> Tuple[np.ndarray, p
 
     return utm, utm_transform
 
-def readCoordsFromKml(filename: str) -> np.ndarray:
+def readCoordsFromKml(
+        filename: str
+    ) -> np.ndarray:
     with open(filename, "r") as kmlfile:
         root = parser.parse(kmlfile).getroot()
         lonlat = []
@@ -131,18 +140,32 @@ def readCoordsFromKml(filename: str) -> np.ndarray:
     
     return lonlat
 
-def growFunction(x: float, g: float, lg: float, xg: float, d: float, ld: float, xd: float) -> float:
+def growFunction(
+        x: float,
+        g: float,
+        lg: float,
+        xg: float,
+        d: float,
+        ld: float,
+        xd: float
+    ) -> float:
     if d > 0:
         return (g/(1+np.exp(-lg*(x-xg)))) - d/(1+np.exp(-ld*(x-xd)))
     else:
         return (g/(1+np.exp(-lg*(x-xg))))
 
-def cumDays(observation_dates: Union[List[float],np.array]) -> np.array:
+def cumDays(
+        observation_dates: Union[List[float],np.array]
+    ) -> np.array:
     cum_days = np.cumsum([d.days for d in np.diff(np.sort(observation_dates))]).astype(float)
     cum_days = np.hstack((0, cum_days))
     return cum_days
 
-def growScaling(cum_days: np.array, bounds: List[str], grow_func_params: np.array) -> np.array:
+def growScaling(
+        cum_days: np.array,
+        bounds: Tuple,
+        grow_func_params: np.array
+    ) -> np.array:
     earliest, latest = bounds
     grow_func = growFunction(cum_days, *grow_func_params)
     maxgrow_val = np.max(grow_func)
@@ -150,11 +173,17 @@ def growScaling(cum_days: np.array, bounds: List[str], grow_func_params: np.arra
     scaled = grow_func * (latest - earliest) + earliest
     return scaled
 
-def makeDirectory(directory: str) -> None:
+def makeDirectory(
+        directory: str
+    ) -> None:
     if not os.path.exists(directory):
         os.makedirs(directory)
 
-def group_points(points: np.array, layers: np.array, max_dist: float) -> Tuple[np.array, np.array]:
+def group_points(
+        points: np.array,
+        layers: np.array,
+        max_dist: float
+    ) -> Tuple[np.array, np.array]:
     nn = NearestNeighbors(n_neighbors=1, n_jobs=-1)
 
     # initialization
@@ -207,7 +236,11 @@ def group_points(points: np.array, layers: np.array, max_dist: float) -> Tuple[n
         
     return labels, centroids
 
-def inverse_transform(xy_centered_aligned, xy_center, transform_coeffs):
+def inverse_transform(
+        xy_centered_aligned,
+        xy_center,
+        transform_coeffs
+    ):
     s   = transform_coeffs[0]
     rot = np.deg2rad(transform_coeffs[1])
     t   = transform_coeffs[2:]
@@ -216,7 +249,10 @@ def inverse_transform(xy_centered_aligned, xy_center, transform_coeffs):
 
     return rot_inv@(xy_centered_aligned-t).T/s + xy_center
 
-def add_non_detected(df_less: pd.DataFrame, df_meta: pd.DataFrame) -> pd.DataFrame:
+def add_non_detected(
+        df_less: pd.DataFrame,
+        df_meta: pd.DataFrame
+    ) -> pd.DataFrame:
     dates = np.unique(df_meta["date"])
     xy_center = df_meta["xy_center"].iloc[0]
     df_add = pd.DataFrame()
@@ -250,7 +286,12 @@ def add_non_detected(df_less: pd.DataFrame, df_meta: pd.DataFrame) -> pd.DataFra
         
     return df_add
 
-def filterGoodPlantsByPercDet(plants_df: pd.DataFrame, meta_df: pd.DataFrame, filter_coverratio: float, perc_min_det: float) -> pd.DataFrame:
+def filterGoodPlantsByPercDet(
+        plants_df: pd.DataFrame,
+        meta_df: pd.DataFrame,
+        filter_coverratio: float,
+        perc_min_det: float
+    ) -> pd.DataFrame:
     
     plants_meta_df = plants_df.merge(meta_df, on=["date", "field_id"], how="left")
     
@@ -274,19 +315,21 @@ def filterGoodPlantsByPercDet(plants_df: pd.DataFrame, meta_df: pd.DataFrame, fi
 
 class SegmentSoilPlants(Task):
     
-    def __init__(self,
-                 image_path: str,
-                 image_channels: List[str],
-                 veg_index: str,
-                 use_watershed: bool,
-                 max_coverratio: float,
-                 make_orthoimage: bool,
-                 orthoimage_dir: str,
-                 plot_result: bool,
-                 plot_dir: str,
-                 plot_format: str,
-                 plot_dpi: int,
-                 plot_cmap: str):
+    def __init__(
+            self,
+            image_path: str,
+            image_channels: List[str],
+            veg_index: str,
+            use_watershed: bool,
+            max_coverratio: float,
+            make_orthoimage: bool,
+            orthoimage_dir: str,
+            plot_result: bool,
+            plot_dir: str,
+            plot_format: str,
+            plot_dpi: int,
+            plot_cmap: str
+        ):
         super().__init__()
         self.image_path = image_path
         self.image_channels = np.asarray(image_channels)
@@ -301,7 +344,9 @@ class SegmentSoilPlants(Task):
         self.plot_dpi    = plot_dpi
         self.plot_cmap   = plot_cmap
            
-    def plot_raw(self):
+    def plot_raw(
+            self
+        ):
         logger.info(f"{self.name}-{self.date.date()} -> Plot raw image.")
         if len(self.image_channels) < 4:
             n_rows, n_cols = 1, len(self.image_channels)
@@ -323,7 +368,9 @@ class SegmentSoilPlants(Task):
         plt.close("all")
         gc.collect()
     
-    def plot_segmentation(self):
+    def plot_segmentation(
+            self
+        ):
         logger.info(f"{self.name}-{self.date.date()} -> Plot segmentation image.")
         fig = plt.figure(figsize=(3*self.width/500, self.height/500), tight_layout=True)
         gridspec = gs.GridSpec(1,3,width_ratios=[2,1,2], figure=fig)
@@ -350,13 +397,18 @@ class SegmentSoilPlants(Task):
         del fig, ax1, ax2, ax3
         gc.collect()
         
-    def run(self):
-        self.field_id, d = os.path.basename(self.image_path).replace(".tif", "").split("_")[:2]
-        year  = int(d[:4])
-        month = int(d[4:6])
-        day   = int(d[6:8])
-        self.date = dt.datetime(year, month, day)
-        
+    def run(
+            self
+        ):
+        try:
+            self.field_id, d = os.path.basename(self.image_path).replace(".tif", "").split("_")[:2]
+            year  = int(d[:4])
+            month = int(d[4:6])
+            day   = int(d[6:8])
+            self.date = dt.datetime(year, month, day)
+        except:
+            logger.error(f"Wrong image path or no files found: {self.image_path}")
+
         logger.info(f"{self.name}-{self.date.date()} -> Load image.")
         raster = rio.open(self.image_path)
         raster_meta = raster.meta
@@ -447,18 +499,22 @@ class SegmentSoilPlants(Task):
                       
 class FitGrowFunction(Task):
     
-    def __init__(self,
-                 plot_result: bool,
-                 plot_dir: str,
-                 plot_format: str,
-                 plot_dpi: int):
+    def __init__(
+            self,
+            plot_result: bool,
+            plot_dir: str,
+            plot_format: str,
+            plot_dpi: int
+        ):
         super().__init__()
         self.plot_result = plot_result
         self.plot_dir    = plot_dir
         self.plot_format = plot_format
         self.plot_dpi    = plot_dpi
 
-    def plot(self):
+    def plot(
+            self
+        ):
         logger.info(f"{self.name} -> Plot Grow function.")
         g, lg, xg, d, ld, xd = self.fit
         cd = np.linspace(0, self.cum_days[-1], 1000)
@@ -486,7 +542,10 @@ class FitGrowFunction(Task):
         plt.close("all")
         del fig, ax, ax_dt
                 
-    def run(self, reduced_results: List[Dict[str, Dict]]):        
+    def run(
+            self,
+            reduced_results: List[Dict[str, Dict]]
+        ):        
         cover_ratios = []
         observation_dates = []
         
@@ -534,18 +593,20 @@ class FitGrowFunction(Task):
             
 class ExtractPlantPositions(Task):
     
-    def __init__(self,
-                 min_peak_distance: float,
-                 peak_threshold: float,
-                 gauss_sigma_bounds: List[float],
-                 use_growfunction: bool,
-                 make_orthoimage: bool,
-                 orthoimage_dir: str,
-                 plot_result: bool,
-                 plot_dir: str,
-                 plot_format: str,
-                 plot_dpi: int,
-                 plot_cmap: str):
+    def __init__(
+            self,
+            min_peak_distance: float,
+            peak_threshold: float,
+            gauss_sigma_bounds: Tuple[float, float],
+            use_growfunction: bool,
+            make_orthoimage: bool,
+            orthoimage_dir: str,
+            plot_result: bool,
+            plot_dir: str,
+            plot_format: str,
+            plot_dpi: int,
+            plot_cmap: str
+        ):
         super().__init__()
         self.min_peak_distance = min_peak_distance
         self.peak_threshold = peak_threshold
@@ -559,7 +620,9 @@ class ExtractPlantPositions(Task):
         self.plot_dpi    = plot_dpi
         self.plot_cmap   = plot_cmap
         
-    def plot_gauss_blur(self):
+    def plot_gauss_blur(
+            self
+        ):
         logger.info(f"{self.name}-{self.date.date()} -> Plot Gaussian blur image.")
         fig, ax = plt.subplots(figsize=(self.width/500, self.height/500))
         im = ax.imshow(self.blurred, cmap='gray')
@@ -569,7 +632,9 @@ class ExtractPlantPositions(Task):
         plt.close("all")
         del fig, ax
     
-    def plot_peaks(self):
+    def plot_peaks(
+            self
+        ):
         logger.info(f"{self.name}-{self.date.date()} -> Plot peak position image.")
         fig, ax = plt.subplots(figsize=(self.width/500, self.height/500))
         ax.scatter(*self.peaks.T[::-1], color='red', s=2, label=f"{len(self.peaks)} peaks")
@@ -581,7 +646,8 @@ class ExtractPlantPositions(Task):
         plt.close("all")
         del fig, ax
         
-    def run(self,
+    def run(
+            self,
             segmentation_mask: np.ndarray,
             #grow_function_cover_ratios: np.array,
             #dates: np.array,
@@ -589,8 +655,8 @@ class ExtractPlantPositions(Task):
             cover_ratio: float,
             date: dt.datetime,
             field_id: str,
-            raster_meta: Dict):
-        
+            raster_meta: Dict
+        ):
         self.date = date
         self.field_id = field_id
         self.px_res = px_resolution
@@ -655,13 +721,15 @@ class ExtractPlantPositions(Task):
 
 class LoadPeaks(Task):
     
-    def __init__(self,
-                 field_id: str,
-                 plot_result: bool,
-                 plot_dir: str,
-                 plot_format: str,
-                 plot_dpi: int,
-                 plot_cmap: str):
+    def __init__(
+            self,
+            field_id: str,
+            plot_result: bool,
+            plot_dir: str,
+            plot_format: str,
+            plot_dpi: int,
+            plot_cmap: str
+        ):
         super().__init__()
         self.field_id    = field_id
         self.plot_result = plot_result
@@ -670,7 +738,9 @@ class LoadPeaks(Task):
         self.plot_dpi    = plot_dpi
         self.plot_cmap   = plot_cmap
         
-    def plot(self):
+    def plot(
+            self
+        ):
         logger.info(f"{self.name} -> Plot raw peaks image.")
         fig, ax = plt.subplots()
         ax.scatter(*self.C.T, s=2, alpha=0.8, c=self.layers, cmap=self.plot_cmap)
@@ -680,8 +750,10 @@ class LoadPeaks(Task):
         plt.close("all")
         del fig, ax
         
-    def run(self, reduced_results: List[Dict[str, Dict]]):
-
+    def run(
+            self,
+            reduced_results: List[Dict[str, Dict]]
+        ):
         cover_ratios, dates, gps_transforms, px_resolutions, field_ids, peaks, utm_transforms, segmentation_masks = [], [], [], [], [], [], [], []
         
         for r in reduced_results:
@@ -752,16 +824,18 @@ class LoadPeaks(Task):
     
 class AlignPoints(Task):
     
-    def __init__(self,
-                 max_centroid_distance_cpd: float,
-                 max_centroid_distance_group: float,
-                 make_orthoimage: bool,
-                 orthoimage_dir: str,
-                 plot_result: bool,
-                 plot_dir: str,
-                 plot_format: str,
-                 plot_dpi: int,
-                 plot_cmap: str):
+    def __init__(
+            self,
+            max_centroid_distance_cpd: float,
+            max_centroid_distance_group: float,
+            make_orthoimage: bool,
+            orthoimage_dir: str,
+            plot_result: bool,
+            plot_dir: str,
+            plot_format: str,
+            plot_dpi: int,
+            plot_cmap: str
+        ):
         super().__init__()
         self.max_centroid_distance_cpd = max_centroid_distance_cpd
         self.max_centroid_distance_group = max_centroid_distance_group
@@ -774,10 +848,15 @@ class AlignPoints(Task):
         self.plot_cmap   = plot_cmap
         
     @staticmethod
-    def transform(coords: np.array, T: np.array) -> np.array:
+    def transform(
+            coords: np.array,
+            T: np.array
+        ) -> np.array:
         return T[0]*coords@T[1] + T[2]
     
-    def plot_aligned(self):
+    def plot_aligned(
+            self
+        ):
         logger.info(f"{self.name} -> Plot aligned peak position image.")
         fig, ax = plt.subplots()
         ax.scatter(*self.P_aligned.T, s=2, alpha=0.8, c=self.layers, cmap=self.plot_cmap)
@@ -787,7 +866,9 @@ class AlignPoints(Task):
         plt.close("all")
         del fig, ax
         
-    def plot_confidence(self):
+    def plot_confidence(
+            self
+        ):
         logger.info(f"{self.name} -> Plot alignment mean confidence.")
         fig, ax = plt.subplots()
         ax.scatter(100*self.cover_ratios, 100*self.median_conf)
@@ -798,14 +879,15 @@ class AlignPoints(Task):
         plt.close("all")
         del fig, ax
         
-    def run(self,
+    def run(
+            self,
             point_cloud: np.ndarray,
             layers: np.array,
             cover_ratios: np.array,
             printdates: np.array,
             field_id: str,
-            utm_transforms: List): 
-    
+            utm_transforms: List
+        ):
         self.field_id = field_id
         self.layers = layers
         self.printdates = printdates
@@ -905,12 +987,14 @@ class AlignPoints(Task):
 
 class AlignCroplines(Task):
     
-    def __init__(self,
-                 plot_result: bool,
-                 plot_dir: str,
-                 plot_format: str,
-                 plot_dpi: int,
-                 plot_cmap: str):
+    def __init__(
+            self,
+            plot_result: bool,
+            plot_dir: str,
+            plot_format: str,
+            plot_dpi: int,
+            plot_cmap: str
+        ):
         super().__init__()
         self.plot_result = plot_result
         self.plot_dir    = plot_dir
@@ -919,12 +1003,20 @@ class AlignCroplines(Task):
         self.plot_cmap   = plot_cmap
         
     @staticmethod
-    def rotation2d(deg: float) -> np.array:
+    def rotation2d(
+            deg: float
+        ) -> np.array:
         a = np.deg2rad(deg)
         return np.array([[np.cos(a),  -np.sin(a)],
                          [np.sin(a), np.cos(a)]])
 
-    def findHoughAnglesNested(self, image: np.ndarray, i_max: int, steps: int, bin_tolerance: int) -> Tuple[np.array, np.array, np.array, np.array, np.array]:
+    def findHoughAnglesNested(
+            self,
+            image: np.ndarray,
+            i_max: int,
+            steps: int,
+            bin_tolerance: int
+        ) -> Tuple[np.array, np.array, np.array, np.array, np.array]:
         test_angles = np.linspace(-np.pi/2, np.pi/2, steps, endpoint=False)
         mean, std = 0, np.pi/2
         for i in range(i_max):
@@ -948,7 +1040,9 @@ class AlignCroplines(Task):
         logger.info(f"{self.name} -> Best alpha after {i_max} iterations = ({np.rad2deg(mean):.4f} +/- {np.rad2deg(std):.4f}) °.")
         return (angles, dists, h, theta, d)
     
-    def plot(self):
+    def plot(
+            self
+        ):
         logger.info(f"{self.name} -> Plot cropline rotation.")
         fig, axes = plt.subplots(1, 2, figsize=(12, 6))
         ax = axes.ravel()
@@ -969,11 +1063,12 @@ class AlignCroplines(Task):
         plt.close("all")
         del fig, ax
         
-    def run(self,
+    def run(
+            self,
             point_cloud_aligned: np.ndarray,
             printdates: np.array,
-            field_id: str):
-
+            field_id: str
+            ):
         self.field_id = field_id
         point_cloud = point_cloud_aligned
         self.printdates = printdates
@@ -1013,18 +1108,22 @@ class AlignCroplines(Task):
 
 class FindCroplines(Task):
     
-    def __init__(self,
-                 plot_result: bool,
-                 plot_dir: str,
-                 plot_format: str,
-                 plot_dpi: int):
+    def __init__(
+            self,
+            plot_result: bool,
+            plot_dir: str,
+            plot_format: str,
+            plot_dpi: int
+        ):
         super().__init__()
         self.plot_result = plot_result
         self.plot_dir    = plot_dir
         self.plot_format = plot_format
         self.plot_dpi    = plot_dpi
     
-    def plot_peaks(self):
+    def plot_peaks(
+            self
+        ):
         logger.info(f"{self.name} -> Plot cropline peak positions.")
         fig, ax = plt.subplots()
         ax.plot(self.y_test, self.incl_points_sum)
@@ -1049,12 +1148,13 @@ class FindCroplines(Task):
         plt.close("all")
         del fig, ax
         
-    def run(self,
+    def run(
+            self,
             point_cloud_rotated: np.ndarray,
             field_id: str,
             median_cropline_distance: float,
-            px_resolutions: np.ndarray):
-        
+            px_resolutions: np.ndarray
+        ):
         self.field_id    = field_id
         self.point_cloud = point_cloud_rotated
         self.Y = self.point_cloud[:,1]
@@ -1090,12 +1190,14 @@ class FindCroplines(Task):
 
 class FilterWeed(Task):
     
-    def __init__(self,
-                 threshold_factor: float,
-                 plot_result: bool,
-                 plot_dir: str,
-                 plot_format: str,
-                 plot_dpi: int):
+    def __init__(
+            self,
+            threshold_factor: float,
+            plot_result: bool,
+            plot_dir: str,
+            plot_format: str,
+            plot_dpi: int
+        ):
         super().__init__()
         self.threshold_factor = threshold_factor
         self.plot_result = plot_result
@@ -1104,11 +1206,16 @@ class FilterWeed(Task):
         self.plot_dpi    = plot_dpi
         
     @staticmethod
-    def find_nearest(array: np.array, values: np.array) -> np.array:
+    def find_nearest(
+            array: np.array,
+            values: np.array
+        ) -> np.array:
         indices = np.abs(np.subtract.outer(array, values)).argmin(axis=0)
         return array[indices]    
         
-    def plot(self):
+    def plot(
+            self
+        ):
         logger.info(f"{self.name} -> Plot point cloud with masked weed.")
         fig, ax = plt.subplots()
         ax.scatter(*self.point_cloud_aligned_filtered.T, s=5, alpha=1, label="valid")
@@ -1120,14 +1227,15 @@ class FilterWeed(Task):
         plt.close("all")
         del fig, ax
         
-    def run(self,
+    def run(
+            self,
             point_cloud_rotated: np.ndarray,
             point_cloud_aligned: np.ndarray,
             point_cloud: np.ndarray,
             layers: np.array,
             croplines_ypos: np.array,
-            field_id: str):
-
+            field_id: str
+        ):
         self.field_id = field_id
         self.point_cloud_aligned = point_cloud_aligned
         median_line_distance = np.median(np.diff(croplines_ypos))
@@ -1158,17 +1266,20 @@ class FilterWeed(Task):
 
 class GroupPoints(Task):
     
-    def __init__(self,
-                 max_centroid_distance: float):
+    def __init__(
+            self,
+            max_centroid_distance: float
+        ):
         super().__init__()
         self.max_centroid_distance = max_centroid_distance
         
-    def run(self,
+    def run(
+            self,
             point_cloud_weedfiltered: np.array,
             point_cloud_aligned_weedfiltered: np.array,
             point_cloud_rotated_weedfiltered: np.array,
-            layers_weedfiltered: np.array):
-            
+            layers_weedfiltered: np.array
+        ):  
         labels, centroids = group_points(point_cloud_aligned_weedfiltered, layers_weedfiltered, max_dist=self.max_centroid_distance)
         labels_dist = np.bincount(np.bincount(labels[labels>=0]))[1:]
 
@@ -1190,12 +1301,14 @@ class GroupPoints(Task):
 
 class SortGroupLabels(Task):
     
-    def __init__(self,
-                 plot_result: bool,
-                 plot_dir: str,
-                 plot_format: str,
-                 plot_dpi: int,
-                 plot_cmap: str):
+    def __init__(
+            self,
+            plot_result: bool,
+            plot_dir: str,
+            plot_format: str,
+            plot_dpi: int,
+            plot_cmap: str
+        ):
         super().__init__()
         self.plot_result = plot_result
         self.plot_dir    = plot_dir
@@ -1204,15 +1317,22 @@ class SortGroupLabels(Task):
         self.plot_cmap   = plot_cmap
         
     @staticmethod
-    def centroid(points):
+    def centroid(
+            points
+        ):
         return points.mean(axis=0)
         
     @staticmethod
-    def find_nearest_index(array, values):
+    def find_nearest_index(
+            array,
+            values
+        ):
         indices = np.abs(np.subtract.outer(array, values)).argmin(axis=0)
         return indices    
         
-    def plot(self):
+    def plot(
+            self
+        ):
         logger.info(f"{self.name} -> Plot sorted and unsorted group labels.")
         fig, ax = plt.subplots(1, 2, sharey=True)
         ax[0].scatter(self.point_cloud[:,0], self.point_cloud[:,1], s=1, c=self.group_labels, alpha=0.6, cmap=self.plot_cmap)
@@ -1228,11 +1348,13 @@ class SortGroupLabels(Task):
         plt.close("all")
         del fig, ax
         
-    def run(self,
+    def run(
+            self,
             field_id: str,
             point_cloud_rotated_weedfiltered_grouped: np.ndarray,
             group_labels: np.array,
-            croplines_ypos: np.array):
+            croplines_ypos: np.array
+        ):
         
         self.point_cloud = point_cloud_rotated_weedfiltered_grouped
         self.group_labels = group_labels
@@ -1263,12 +1385,15 @@ class SortGroupLabels(Task):
  
 class SavePlantsDataFrame(Task):
     
-    def __init__(self,
-                 save_dir: str):
+    def __init__(
+            self,
+            save_dir: str
+        ):
         super().__init__()
         self.save_dir = save_dir     
         
-    def run(self,
+    def run(
+            self,
             field_id: str,
             dates: pd.DatetimeIndex,
             cover_ratios: np.array,
@@ -1284,8 +1409,8 @@ class SavePlantsDataFrame(Task):
             point_cloud_weedfiltered_grouped: np.ndarray,
             point_cloud_aligned_weedfiltered_grouped: np.ndarray,
             group_labels_sorted: np.array,
-            croplines_ypos: np.array):
-        
+            croplines_ypos: np.array
+        ):
         # back-transform peak position data from cm (UTM) into GPS coordinates
         point_cloud_weedfiltered_grouped_gps = np.hstack([utm_transforms[l](*point_cloud_weedfiltered_grouped[layers_weedfiltered_grouped == l].T/100., inverse=True) for l in np.unique(layers_weedfiltered_grouped)]).T
 
@@ -1361,17 +1486,19 @@ class SavePlantsDataFrame(Task):
 
 class EvaluateDetectionQuality(Task):
 
-    def __init__(self,
-                 df_dir: str,
-                 image_dir: str,
-                 ground_truth_dir: str,
-                 image_channels: List[str],
-                 max_distance: float,
-                 save_dir: str,
-                 plot_result: bool,
-                 plot_dir: str,
-                 plot_format: str,
-                 plot_dpi: float):
+    def __init__(
+            self,
+            df_dir: str,
+            image_dir: str,
+            ground_truth_dir: str,
+            image_channels: List[str],
+            max_distance: float,
+            save_dir: str,
+            plot_result: bool,
+            plot_dir: str,
+            plot_format: str,
+            plot_dpi: float
+        ):
         super().__init__()
         self.df_dir = df_dir
         self.image_dir = image_dir
@@ -1384,7 +1511,9 @@ class EvaluateDetectionQuality(Task):
         self.plot_format = plot_format
         self.plot_dpi = plot_dpi
    
-    def plot(self):
+    def plot(
+            self
+        ):
         logger.info(f"{self.name}-{self.date} -> Plot detections on image.")
         fig, ax = plt.subplots(figsize=(self.width/1000, self.height/1000))
         ax.imshow(self.img)
@@ -1405,13 +1534,14 @@ class EvaluateDetectionQuality(Task):
         plt.close("all")
         del fig, ax
 
-    def run(self,
+    def run(
+            self,
             field_id: str,
             dates: pd.DatetimeIndex,
             gps_transforms: List,
             utm_transforms: List,
-            px_resolutions: np.array):
-
+            px_resolutions: np.array
+        ):
         self.field_id = field_id
         px_res = np.mean(px_resolutions)
 
@@ -1576,12 +1706,17 @@ class EvaluateDetectionQuality(Task):
 
 class MergePlantsDataFrame(Task):
     
-    def __init__(self,
-                 save_dir: str):
+    def __init__(
+            self,
+            save_dir: str
+        ):
         super().__init__()
         self.save_dir = save_dir
         
-    def run(self, reduced_results: List[Dict[str, Dict]]):        
+    def run(
+            self,
+            reduced_results: List[Dict[str, Dict]]
+        ):        
         plants_df_paths  = sorted(glob(os.path.join(self.save_dir, f"*_plants.pkl")))
         meta_df_paths    = sorted(glob(os.path.join(self.save_dir, f"*_meta.pkl")))
         quality_df_paths = sorted(glob(os.path.join(self.save_dir, f"*_det_quality.pkl")))
@@ -1617,23 +1752,35 @@ class MergePlantsDataFrame(Task):
 
 class MakeImageDataset(Task):
     
-    def __init__(self,
-                 df_dir: str,
-                 source_tiff_dir: str,
-                 source_channels: List[str],
-                 export_channels: List[str],
-                 export_shape: List[int],
-                 ann_df_path: str,
-                 ann_gps_name: str,
-                 ann_values_name: str,
-                 tol_distance: float,
-                 save_dir: str):
+    def __init__(
+            self,
+            df_dir: str,
+            source_tiff_dir: str,
+            source_channels: List[str],
+            export_channels: List[str],
+            export_shape: List[int],
+            export_resolution: float,
+            nan_value: Union[str, float, int],
+            ann_df_path: str,
+            ann_gps_name: str,
+            ann_values_name: str,
+            tol_distance: float,
+            save_dir: str
+        ):
         super().__init__()
         self.df_dir = df_dir
         self.source_tiff_dir = source_tiff_dir
         self.source_channels = np.asarray(source_channels)
         self.export_channels = np.asarray(export_channels)
         self.export_shape = export_shape
+        self.export_resolution = export_resolution
+        if type(nan_value) == str:
+            if nan_value == "nan":
+                self.nan_value = np.nan
+            else:
+                raise AttributeError()
+        else:
+            self.nan_value = nan_value
         self.ann_df_path = ann_df_path
         self.ann_gps_name = ann_gps_name
         self.ann_values_name = ann_values_name
@@ -1641,7 +1788,10 @@ class MakeImageDataset(Task):
         self.save_dir = save_dir
 
     @staticmethod
-    def point_inside_region(point: Tuple, region) -> bool:
+    def point_inside_region(
+            point: Tuple,
+            region
+        ) -> bool:
         r, c = point
         minr, minc, maxr, maxc = region.bbox
         if (minr <= r <= maxr) and (minc <= c <= maxc):
@@ -1649,7 +1799,11 @@ class MakeImageDataset(Task):
         else:
             return False
 
-    def find_bbox(self, img: np.ndarray, segmask: Optional[np.ndarray]) -> Optional[Tuple[Tuple, np.ndarray]]:
+    def find_bbox(
+            self,
+            img: np.ndarray, 
+            segmask: Optional[np.ndarray]
+        ) -> Optional[Tuple[Tuple, np.ndarray]]:
         if segmask is not None:
             distance = distance_transform_edt(segmask)
             coords = peak_local_max(distance, min_distance=int(self.mean_shape/10), exclude_border=False)
@@ -1687,7 +1841,11 @@ class MakeImageDataset(Task):
         else:
             return None
 
-    def retrieve_annotations(self, plants: pd.DataFrame, meta: pd.DataFrame) -> pd.DataFrame:
+    def retrieve_annotations(
+            self,
+            plants: pd.DataFrame,
+            meta: pd.DataFrame
+        ) -> pd.DataFrame:
         nn = NearestNeighbors(n_neighbors=1)
         ann = pd.read_pickle(self.ann_df_path)
         plants_ann = []
@@ -1713,21 +1871,35 @@ class MakeImageDataset(Task):
 
         return pd.concat(plants_ann)
     
-    def run(self,
+    @staticmethod
+    def plot(
+            ax,
+            image,
+            mask,
+            bbox
+        ):
+        ax.imshow(image/image.max(), alpha=1)
+        ax.imshow(mask, vmin=0, vmax=1, alpha=0.2, cmap="gray")
+        min_row, min_col, max_row, max_col = bbox
+        xy = (min_col, min_row)
+        w = max_col-min_col
+        h = max_row-min_row
+        b = mpl.patches.Rectangle(xy, w, h, fill=False, edgecolor="r")
+        ax.add_patch(b)
+        
+        return ax
+
+    def run(
+            self,
             field_id: str,
             dates: pd.DatetimeIndex,
-            segmentation_masks: List[np.ndarray]
-            ):
-        plant_dir = os.path.join(self.save_dir, "plant_imgs")
-        seg_dir = os.path.join(self.save_dir, "seg_masks")
-        bbox_dir = os.path.join(self.save_dir, "bboxes")
-        #plot_dir = os.path.join(self.save_dir, "plots")
+            segmentation_masks: List[np.ndarray],
+            px_resolutions: np.ndarray,
+        ):
+        temp_dir = os.path.join(self.save_dir, "temp")
 
-        # make directories of not existing
-        makeDirectory(plant_dir)
-        makeDirectory(seg_dir)
-        makeDirectory(bbox_dir)
-        #makeDirectory(plot_dir)
+        # make directory if not existing
+        makeDirectory(temp_dir)
 
         self.field_id = field_id
 
@@ -1740,14 +1912,11 @@ class MakeImageDataset(Task):
 
         # save dataset info dict
         info_dict = {"channels": self.export_channels.tolist(),
-                     "image_shape": self.export_shape}
+                     "image_shape": self.export_shape,
+                     "image_resolution": self.export_resolution}
         with open(os.path.join(self.save_dir, "info.json"), "w") as f:
             json.dump(info_dict, f, indent=4, sort_keys=False)
         
-        # initialize bboxes dict
-        bbox_dict = {"info": {"bbox_scheme": "min_column, min_row, max_column, max_row"},
-                     "bbox": {}}
-
         # load plants information
         plants = pd.read_pickle(os.path.join(self.df_dir, f"{self.field_id}_plants.pkl"))
         
@@ -1757,25 +1926,17 @@ class MakeImageDataset(Task):
             annotations = self.retrieve_annotations(plants, meta)
             annotation_dir = os.path.join(self.save_dir, "annotations")
             makeDirectory(annotation_dir)
-            annotation_path = os.path.join(annotation_dir,f"{self.field_id}_{self.ann_values_name}.pkl")
+            annotation_path = os.path.join(annotation_dir, f"{self.field_id}_{self.ann_values_name}.pkl")
             annotations.to_pickle(annotation_path)
             logger.info(f"{self.name}-{self.field_id} -> saved annotations at {annotation_path}.")
 
-        @staticmethod
-        def plot(ax, image, mask, bbox):
-            ax.imshow(image/image.max(), alpha=1)
-            ax.imshow(mask, vmin=0, vmax=1, alpha=0.2, cmap="gray")
-            min_row, min_col, max_row, max_col = bbox
-            xy = (min_col, min_row)
-            w = max_col-min_col
-            h = max_row-min_row
-            b = mpl.patches.Rectangle(xy, w, h, fill=False, edgecolor="r")
-            ax.add_patch(b)
-            
-            return ax
+        # list of lengths (for later HDP file generation)
+        lengths = []
 
         # iterate source images and save plant images, segmentation masks, and central bounding boxs        
-        for d, segmask in zip(dates, segmentation_masks):
+        for d, segmask, px_res in zip(dates, segmentation_masks, px_resolutions):
+
+            scale_factor = px_res / self.export_resolution
 
             logger.info(f"{self.name}-{self.field_id}-{d.date()} -> extract images.")
             
@@ -1784,8 +1945,14 @@ class MakeImageDataset(Task):
 
             with rio.open(tiff_path) as src:
 
+                p_imgs, p_ids = [], []
+
                 for i, p in P.iterrows():
-                    w = Window(p.xy_px[1]-self.export_shape[1]/2, p.xy_px[0]-self.export_shape[0]/2, self.export_shape[1], self.export_shape[0])
+                    w = Window(
+                        p.xy_px[1]-self.export_shape[1]/(2*scale_factor),
+                        p.xy_px[0]-self.export_shape[0]/(2*scale_factor),
+                        self.export_shape[1]/scale_factor,
+                        self.export_shape[0]/scale_factor)
                     transform = src.window_transform(w)
 
                     # Create a new cropped raster to write to
@@ -1796,89 +1963,166 @@ class MakeImageDataset(Task):
                         'transform': transform,
                         'count': len(self.export_channels)})
 
-                    # read single plant image
-                    src_w = src.read(src_channels, window=w)
+                    # read single plant image and rescale with scale factor
+                    src_w = src.read(
+                        src_channels,
+                        out_shape=(len(src_channels), self.export_shape[0], self.export_shape[1]),
+                        resampling=Resampling.bilinear,
+                        window=w,
+                        fill_value=self.nan_value)
 
                     # if single image has correct shape ...
                     if list(src_w.shape[1:]) == self.export_shape:
-                        # if correctly shaped segmentation mask is existing ...
-                        if isinstance(segmask, np.ndarray):
-                            w = w.round_offsets()
-                            wmask = segmask[w.row_off:w.row_off+self.export_shape[0],w.col_off:w.col_off+self.export_shape[1]]
-                            if list(wmask.shape) != self.export_shape:
-                                wmask = None
-                        else:
-                            wmask = None
-                        # process for bounding box detection
-                        res = self.find_bbox(np.transpose(src_w[:3], axes=(1,2,0)), wmask)
-                        if res is not None:
-                            bbox, bmask = res
-                            file_id = f"{self.field_id}_{p.date.strftime('%Y%m%d')}_{p.group_id:04g}"
-                            # write image
-                            with rio.open(os.path.join(plant_dir, file_id+".tif"), 'w', **profile) as dst:
-                                dst.write(src_w)
-                            # write mask
-                            Image.fromarray(np.array(255*bmask, dtype=np.uint8)).save(os.path.join(seg_dir, file_id+".png"))
-                            # write bbox
-                            bbox_dict["bbox"][file_id] = bbox
 
+                        p_imgs.append(src_w)
+                        p_ids.append(p.group_id)
+
+                        # if correctly shaped segmentation mask is existing ...
+                        #if isinstance(segmask, np.ndarray):
+                        #    w = w.round_offsets()
+                        #    wmask = segmask[w.row_off:w.row_off+int(np.round(scale_factor*self.export_shape[0])),
+                        #                    w.col_off:w.col_off+int(np.round(scale_factor*self.export_shape[1]))]
+                        #    if list(wmask.shape) != [int(np.round(scale_factor*self.export_shape[0])), int(np.round(scale_factor*self.export_shape[1]))]:
+                        #        wmask = None  
+                        #    else:
+                        #        wmask = resize(wmask, self.export_shape).astype(bool) 
+                        #else:
+                        #    wmask = None
+                        # process for bounding box detection
+                        #res = self.find_bbox(np.transpose(src_w[:3], axes=(1,2,0)), wmask)
+                        #if res is not None:
+                        #    bbox, bmask = res
+                        
+                lengths.append(len(p_ids))
+                file_id = f"{self.field_id}_{p.date.strftime('%Y%m%d')}"
+                # write images, plant ids, date and field_id to temporary .pkl file
+                with open(os.path.join(temp_dir, file_id+".pkl"), "wb") as pkl_file:
+                    pickle.dump((p_imgs, p_ids, p.date, self.field_id, len(p_ids)), pkl_file)
                             #fig, ax = plt.subplots()
-                            #ax = plot(ax, np.transpose(src_w[:3], axes=(1,2,0)), bmask, bbox)
+                            #ax = self.plot(ax, np.transpose(src_w[:3], axes=(1,2,0)), bmask, bbox)
                             #fig.savefig(os.path.join(plot_dir, file_id+".png"))
                             #del fig, ax
-                        else:
-                            logger.warn(f"{self.name}-{self.field_id}-{p.group_id}-{p.date.strftime('%Y-%m-%d')} -> no plant detected in image center. Skip.")
+                        #else:
+                        #    logger.warn(f"{self.name}-{self.field_id}-{p.group_id}-{p.date.strftime('%Y-%m-%d')} -> no plant detected in image center. Skip.")
 
-        logger.info(f"{self.name}-{self.field_id} -> all valid images saved at {plant_dir}.")
-        
-        json_path = os.path.join(bbox_dir, f"{self.field_id}_bboxes.json")
-        with open(json_path, "w") as f:
-            json.dump(bbox_dict, f, indent=4, sort_keys=False)
-
-        logger.info(f"{self.name}-{self.field_id} -> JSON file with bounding boxes saved at {json_path}.")
+        logger.info(f"{self.name}-{self.field_id} -> all valid images saved at {temp_dir}.")
         
         self.save(obj=self.field_id, name="field_id", type_="json")
+        self.save(obj=lengths, name="lengths", type_="pickle")
 
 
-class MergeBoundingBoxFiles(Task):
+class MergeImageFiles(Task):
 
-    def __init__(self,
-                 img_root_dir: str):
+    def __init__(
+            self,
+            save_dir: str,
+            channels: List[str],
+            img_shape: List[int],
+            ann_values_name: str,
+            planting_date: str
+        ):
         super().__init__()
-        self.img_root_dir = img_root_dir
+        self.save_dir = save_dir
+        self.channels = np.asarray(channels)
+        self.img_shape = img_shape
+        self.ann_values_name = ann_values_name
+        self.planting_date = dt.datetime.strptime(planting_date, "%Y-%m-%d").date()
 
-    def run(self, reduced_results: List[Dict[str, Dict]]):
-        json_files = sorted(glob(os.path.join(self.img_root_dir, "bboxes", "*_bboxes.json")))
+    def write_to_file(
+            self,
+            hf,
+            i,
+            pkl_path,
+            ann,
+            ann_dates
+        ):
+        with open(pkl_path, "rb") as pkl_file:
+            (p_imgs, p_ids, date, field_id, n) = pickle.load(pkl_file)
+        try:
+            hf["image"][i:i+n,...] = p_imgs
+            #hf["seg_mask"][i:i+n,...] = seg_mask
+            #hf["bbox"][i:i+n,...] = bbox
+            hf["age"][i:i+n,...] = [(date.date() - self.planting_date).days]*n
+            hf["field_id"][i:i+n,...] = [field_id]*n
+            hf["plant_id"][i:i+n,...] = p_ids
+            hf["date"][i:i+n,...] = [date._date_repr]*n
+            if isinstance(ann, pd.DataFrame):
+                nearest_ann_date = abs(date-ann_dates).argmin()
+                ann_ = ann.query(f"date == '{ann_dates[nearest_ann_date]}' & field_id == '{field_id}'")
+                for j, id in enumerate(p_ids):
+                    ann__ = ann_[ann_.group_id == id]
+                    if len(ann__) == 1:
+                        hf[self.ann_values_name][i+j,...] = ann__[self.ann_values_name]
+                    elif len(ann__) > 1:
+                        logger.warn(f"{self.name} -> ambiguous labels. Skip.")
+                        hf[self.ann_values_name][i+j,...] = 0
+                    else:
+                        hf[self.ann_values_name][i+j,...] = 0
+        except Exception as e:
+           logger.error(f"{self.name} -> failed to save data of file {pkl_path}. Error: {e}")
+        return n
 
-        data = {"info" : {},
-                "bbox" : {}}
+    def run(
+            self,
+            reduced_results: List[Dict[str, Dict]]
+        ):
+        files = sorted(glob(os.path.join(self.save_dir, "temp/*.pkl")))
+        h5_path = os.path.join(self.save_dir, "dataset.h5")
 
-        for i, j in enumerate(json_files):
-            with open(j, "r") as f:
-                _ = json.load(f)
-                if i == 0:
-                    data["info"] = _["info"]
-                data["bbox"].update(_["bbox"])
+        # sum number of total images for fixed-sized HDF5 file
+        length = np.sum(np.hstack([r["result"]["lengths"] for r in reduced_results]))
+        logger.info(f"{self.name} -> merge {length} images into HDF5 file.")
 
-        json_path = os.path.join(self.img_root_dir, "bboxes", "bboxes.json")
-        with open(json_path, "w") as f:
-            json.dump(data, f, indent=4, sort_keys=False)
+        # make HDF5 file and datasets
+        with h5py.File(h5_path, "w") as hf:
+            hf.create_dataset("image", (length, len(self.channels), *self.img_shape), dtype=np.float32)
+            #hf.create_dataset("seg_mask", (length, *self.img_shape), dtype=bool)
+            #hf.create_dataset("bbox", (length, 4), dtype=np.uint8)
+            hf.create_dataset("age", (length,), dtype=np.uint8)                
+            str_dt = h5py.special_dtype(vlen=str)
+            hf.create_dataset("date", (length,), dtype=str_dt)
+            hf.create_dataset("field_id", (length,), dtype=str_dt)
+            hf.create_dataset("plant_id", (length,), dtype=np.uint16)
 
-        logger.info(f"{self.name} -> bbox JSON files merged at {json_path}.")
+            if len(glob(os.path.join(self.save_dir, f"annotations/*.pkl"))) > 0:
+                hf.create_dataset(self.ann_values_name, (length,), dtype=np.uint8)
+                ann = pd.concat([pd.read_pickle(f) for f in sorted(glob(os.path.join(self.save_dir, f"annotations/*_{self.ann_values_name}.pkl")))])
+                ann_dates = pd.DatetimeIndex(ann.date.unique()).sort_values()
+            else:
+                ann = None
+                ann_dates = None
+
+            logger.info(f"{self.name} -> save to HDF5 file")
+
+            # iteratively add data from temp. pickle files
+            start_ind = 0
+            for i, pkl_path in enumerate(files):
+                file_len = self.write_to_file(hf, start_ind, pkl_path, ann, ann_dates)
+                logger.info(f"{self.name} -> {i+1}/{len(files)} files merged to HDF5 file.")
+                start_ind += file_len
+
+        logger.info(f"{self.name} -> all images saved to HDF5 file.")
+
+        logger.info(f"{self.name} -> delete temporary files.")
+        for file in files:
+            os.remove(file)
+        os.rmdir(os.path.join(self.save_dir, "temp"))
 
         self.save(obj="", name="_dummy", type_="json")
 
 
 class ExportPlantPositions(Task):
 
-    def __init__(self,
-                 df_dir: str):
+    def __init__(
+            self,
+            df_dir: str):
         super().__init__()
         self.df_dir = df_dir
 
-    def run(self,
-            field_id: str):
-
+    def run(
+            self,
+            field_id: str
+        ):
         plants = pd.read_pickle(os.path.join(self.df_dir, f"{field_id}_plants.pkl"))
 
         kml_outpath = os.path.join(self.df_dir, f"{field_id}_plants.kml")
@@ -1927,4 +2171,3 @@ class ExportPlantPositions(Task):
         logger.info(f"{self.name} -> Plant and seeding lines positions exported as KML file.")
 
         self.save(obj="", name="_dummy", type_="json")
-

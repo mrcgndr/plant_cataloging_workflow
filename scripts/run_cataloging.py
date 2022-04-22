@@ -1,9 +1,9 @@
 #! .venv/bin/python
 
-from plant_extraction.pipeline import Pipeline
+from cataloging.pipeline import Pipeline
 import argparse
 
-parser = argparse.ArgumentParser(description="Run the full plant extraction pipeline with given config file.")
+parser = argparse.ArgumentParser(description="Run the full plant cataloging pipeline with given config file.")
 parser.add_argument("-c", dest="config_path", type=str, help="path to config file") 
 args = parser.parse_args()
 
