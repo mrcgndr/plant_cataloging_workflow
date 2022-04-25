@@ -16,7 +16,7 @@ Please cite as:
 }
 ```
 
-## Installation
+## Installation with Virtual Environment
 
 ### 1. Create new Python environment and activate it
 
@@ -43,13 +43,29 @@ For installation in development mode, run
 $ pip install -e .
 ```
 
-### Start demo pipeline
+## Execution with Docker
+
+### 1. Build Container
+
+```bash
+$ docker build . -t pcw:latest
+```
+
+### 2. Run Container
+
+Inlcude data and results folder as shared folders and start image
+
+```bash
+$ docker run -it -v /local/path/to/data/:/root/data -v /local/path/to/results/:/root/results pcw:latest
+```
+
+## Start demo pipeline
 
 * UAV image data located in data/ folder
 * ground truth data located in data/ground_truth/ folder
 
 ```bash
-$ scripts/run_cataloging.py -c config/demo.yml
+$ python scripts/run_cataloging.py -c config/demo.yml
 ```
 
 * results will be saved in results/ folder
@@ -60,3 +76,26 @@ $ scripts/run_cataloging.py -c config/demo.yml
 * [data](/data): Folder with UAV images and ground truth data
 * [cataloging](/cataloging): Actual code of plant cataloging workflow implementation
 * [scripts](/scripts): Scripts to execute drone image analysis workflows.
+
+## Declaration of dependencies
+
+The Python implementation comes with some dependencies:
+
+* Workflow, pipeline, and configuration
+  * [fluidml](https://github.com/fluidml/fluidml)
+  * [metadict](https://github.com/LarsHill/metadict)
+  * [pyyaml](https://pyyaml.org)
+* Plotting
+  * [matplotlib](https://matplotlib.org)
+* File handling of results
+  * [h5py](https://www.h5py.org) for image datasets
+  * [pandas](https://pandas.pydata.org) for plant catalog
+  * [pykml](https://pythonhosted.org/pykml/) and [simplekml](https://simplekml.readthedocs.io/en/latest/) for handling the georeferenced annotation files
+* Orthoimage manipulation and IO
+  * [rasterio](https://rasterio.readthedocs.io/en/latest/) for reading/writing georeferenced images (othoimages)
+  * [pyproj](https://pyproj4.github.io/pyproj/stable/) for coordinate system transformations
+* Algorithms
+  * [pycpd](https://github.com/siavashk/pycpd) for point set registration used in workflow
+  * [scikit-image](https://scikit-image.org) for image processing and filtering
+  * [scikit-learn](https://scikit-learn.org) for basic models
+  * [scipy](https://scipy.org) for mathematical operations and common algorithms (peak finder, image transforms, etc.)

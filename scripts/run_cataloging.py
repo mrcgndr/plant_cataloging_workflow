@@ -1,5 +1,3 @@
-#! .venv/bin/python
-
 from cataloging.pipeline import Pipeline
 import argparse
 
