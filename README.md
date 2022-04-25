@@ -82,18 +82,16 @@ $ python scripts/run_cataloging.py -c config/demo.yml
 The Python implementation comes with some dependencies:
 
 * Workflow, pipeline, and configuration
-  * [fluidml](https://github.com/fluidml/fluidml)
-  * [metadict](https://github.com/LarsHill/metadict)
-  * [pyyaml](https://pyyaml.org)
-* Plotting
-  * [matplotlib](https://matplotlib.org)
+  * [fluidml](https://github.com/fluidml/fluidml) for pipeline
+  * [metadict](https://github.com/LarsHill/metadict) and [pyyaml](https://pyyaml.org) for configuration handling
 * File handling of results
   * [h5py](https://www.h5py.org) for image datasets
+  * [matplotlib](https://matplotlib.org) for plotting
   * [pandas](https://pandas.pydata.org) for plant catalog
   * [pykml](https://pythonhosted.org/pykml/) and [simplekml](https://simplekml.readthedocs.io/en/latest/) for handling the georeferenced annotation files
 * Orthoimage manipulation and IO
-  * [rasterio](https://rasterio.readthedocs.io/en/latest/) for reading/writing georeferenced images (othoimages)
   * [pyproj](https://pyproj4.github.io/pyproj/stable/) for coordinate system transformations
+  * [rasterio](https://rasterio.readthedocs.io/en/latest/) for reading/writing georeferenced images (orthoimages)
 * Algorithms
   * [pycpd](https://github.com/siavashk/pycpd) for point set registration used in workflow
   * [scikit-image](https://scikit-image.org) for image processing and filtering
