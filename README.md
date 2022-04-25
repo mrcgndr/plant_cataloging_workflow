@@ -45,7 +45,7 @@ $ pip install -e .
 
 ## Execution with Docker
 
-### 1. Build Container
+### 1. Build Container with [Dockerfile](Dockerfile)
 
 ```bash
 $ docker build . -t pcw:latest
@@ -61,8 +61,8 @@ $ docker run -it -v /local/path/to/data/:/root/data -v /local/path/to/results/:/
 
 ## Start demo pipeline
 
-* UAV image data located in data/ folder
-* ground truth data located in data/ground_truth/ folder
+* UAV image data located in ```data/``` folder
+* ground truth data located in ```data/ground_truth/``` folder
 
 ```bash
 $ python scripts/run_cataloging.py -c config/demo.yml
@@ -73,7 +73,6 @@ $ python scripts/run_cataloging.py -c config/demo.yml
 ## Directory contents
 
 * [config](/config): Pipeline configurations for plant extraction workflow in YAML format
-* [data](/data): Folder with UAV images and ground truth data
 * [cataloging](/cataloging): Actual code of plant cataloging workflow implementation
 * [scripts](/scripts): Scripts to execute drone image analysis workflows.
 
