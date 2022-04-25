@@ -8,7 +8,7 @@ Please cite as:
 ```bibtex
 @misc{guender_plantcatalogingworkflow,
       title={Agricultural Plant Cataloging and Establishment of a Data Framework from UAV-based Crop Images by Computer Vision}, 
-      author={Maurice Gu\"nder and Facundo R. Ispizua Yamati and Jana Kierdorf and Ribana Roscher and Anne-Katrin Mahlein and Christian Bauckhage},
+      author={Maurice G\"under and Facundo R. Ispizua Yamati and Jana Kierdorf and Ribana Roscher and Anne-Katrin Mahlein and Christian Bauckhage},
       year={2022},
       eprint={2201.02885},
       archivePrefix={arXiv},
