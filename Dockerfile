@@ -4,7 +4,8 @@ WORKDIR /root
 
 COPY . .
 
-RUN mkdir data/ && mkdir mkdir data/ground_truth
+RUN mkdir data/ 
+RUN mkdir data/ground_truth
 
 RUN pip install -U pip
 
