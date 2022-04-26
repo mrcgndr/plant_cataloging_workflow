@@ -18,20 +18,5 @@ setup(name='plant_cataloging_workflow',
       copyright=__copyright__,
       keywords=['remote-sensing', 'agriculture', 'image-processing', 'machine-learning'],
       packages=find_packages(),
-      python_requires='>=3.9',
-      install_requires=[
-        "fluidml",
-        "h5py",
-        "matplotlib",
-        "metadict",
-        "pandas",
-        "pycpd",
-        "pykml",
-        "pyproj",
-        "pyyaml",
-        "rasterio",
-        "scikit-image",
-        "scikit-learn",
-        "scipy",
-        "simplekml"
-      ])
+      python_requires='>=3.9'
+      )

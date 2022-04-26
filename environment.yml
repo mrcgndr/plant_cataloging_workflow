@@ -1,0 +1,22 @@
+name: pcw
+channels:
+  - conda-forge
+dependencies:
+  - python=3.9
+  - h5py
+  - matplotlib
+  - pandas
+  - pip
+  - pykml
+  - pyproj
+  - pyyaml
+  - rasterio
+  - scikit-image
+  - scikit-learn
+  - scipy
+  - simplekml
+  - pip:
+    - .
+    - fluidml
+    - metadict
+    - pycpd

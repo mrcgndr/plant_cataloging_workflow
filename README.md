@@ -33,50 +33,25 @@ $ cd plant_cataloging_workflow
 
 Two installation methods are recommended: By using a virtual environment or using Docker.
 
-* ### Installation as Virtual Environment (venv)
-
-  * #### 1. Create new Python 3.9 environment and activate it
+* ### Installation as ```conda``` environment
 
     ```bash
-    $ python -m venv .venv
-    $ source .venv/bin/activate
+    $ conda env create -f environment.yml
+    $ conda activate pcw
     ```
-
-  * #### 2. Update ```pip```
-      ```bash
-      $ pip install -U pip
-      ```
-
-  * #### 3. Install package and dependencies ...
-
-    * ... as regular package
-      ```bash
-      $ pip install .
-      ```
-
-    * ... in development mode
-      ```bash
-      $ pip install -e .
-      ```
 
 * ### Installation as Docker Container
 
-  * #### 1. Build Container with Dockerfile
-
-    * on Linux
-      ```bash
-      $ docker build -f Dockerfile_Linux -t pcw:latest .
-      ```
-    * on Windows
-      ```bash
-      $ docker build -f Dockerfile_Windows -t pcw:latest .
-      ```
-  * #### 2. Run Container
-
-    Inlcude data and results folder as shared folders and start container image
+  Build Container with [```Dockerfile```](Dockerfile)
 
     ```bash
-    $ docker run -it -v /local/path/to/data/:/root/data -v /local/path/to/results/:/root/results pcw:latest
+    $ docker build . -t pcw:latest
+    ```
+
+  Inlcude data and results folder as shared folders and start container image
+
+    ```bash
+    $ docker run -it --name pcw -v /local/path/to/data/:/root/data -v /local/path/to/results/:/root/results pcw:latest
     ```
 
 ---
