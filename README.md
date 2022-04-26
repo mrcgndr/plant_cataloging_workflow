@@ -33,14 +33,17 @@ $ cd plant_cataloging_workflow
 
 Two installation methods are recommended: By using a virtual environment or using Docker.
 
-* ### Installation as ```conda``` environment
+* ### Installation as ```conda``` environment (Linux and Windows)
+
+    Make sure, that ```conda``` is installed on your system. Install instructions for Miniconda can be found [here](https://docs.conda.io/projects/conda/en/latest/user-guide/install/windows.html). Then, create and activate a new conda environment by
 
     ```bash
     $ conda env create -f environment.yml
     $ conda activate pcw
     ```
 
-* ### Installation as Docker Container
+    The workflow package can now be used in this environment.
+* ### Installation as Docker Container (Linux only)
 
   Build Container with [```Dockerfile```](Dockerfile)
 
