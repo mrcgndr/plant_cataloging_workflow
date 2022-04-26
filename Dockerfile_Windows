@@ -10,7 +10,7 @@ RUN mkdir data/ground_truth
 RUN pip install -U pip
 
 RUN pip install pipwin
-RUN pip install gdal fiona rasterio geopandas
+RUN pipwin install gdal fiona rasterio geopandas
 
 RUN pip install .
 
