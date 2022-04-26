@@ -61,12 +61,16 @@ Two installation methods are recommended: By using a virtual environment or usin
 
 * ### Installation as Docker Container
 
-  * #### 1. Build Container with [```Dockerfile```](Dockerfile)
+  * #### 1. Build Container with Dockerfile
 
+    * on Linux
       ```bash
-      $ docker build . -t pcw:latest
+      $ docker build Dockerfile_Linux -t pcw:latest
       ```
-
+    * on Windows
+      ```bash
+      $ docker build Dockerfile_Windows -t pcw:latest
+      ```
   * #### 2. Run Container
 
     Inlcude data and results folder as shared folders and start container image
