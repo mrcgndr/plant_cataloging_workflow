@@ -2,9 +2,9 @@ FROM continuumio/miniconda3:latest
 
 WORKDIR /root
 
-RUN mkdir plant_cataloging_workflow/
+RUN mkdir pcw/
 
-WORKDIR /root/plant_cataloging_workflow/
+WORKDIR /root/pcw/
 
 COPY . .
 

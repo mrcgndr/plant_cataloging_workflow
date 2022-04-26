@@ -51,7 +51,7 @@ Two installation methods are recommended: By using a virtual environment or usin
   Inlcude data and results folder as shared folders and start container image
 
     ```bash
-    $ docker run -it --name pcw -v /local/path/to/data/:/root/data -v /local/path/to/results/:/root/results pcw:latest
+    $ docker run -it --name pcw -v /local/path/to/data/:/root/pcw/data -v /local/path/to/results/:/root/pcw/results pcw:latest
     ```
 
 ---
