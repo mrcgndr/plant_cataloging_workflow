@@ -65,11 +65,11 @@ Two installation methods are recommended: By using a virtual environment or usin
 
     * on Linux
       ```bash
-      $ docker build Dockerfile_Linux -t pcw:latest
+      $ docker build -f Dockerfile_Linux -t pcw:latest .
       ```
     * on Windows
       ```bash
-      $ docker build Dockerfile_Windows -t pcw:latest
+      $ docker build -f Dockerfile_Windows -t pcw:latest .
       ```
   * #### 2. Run Container
 
