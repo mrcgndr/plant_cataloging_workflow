@@ -66,7 +66,7 @@ Two installation methods are recommended: By using a virtual environment or usin
 ---
 ## Start demo pipeline
 
-Make sure that ...
+Download the demo dataset [here](https://dx.doi.org/10.5524/102225) and make sure that ...
   * ... UAV image data located in ```data/``` folder
   * ... ground truth data located in ```data/ground_truth/``` folder
 
